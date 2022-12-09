@@ -139,9 +139,13 @@ pub use crate::tracing::{trace_set, TraceLevel};
 pub use crate::transaction::Transaction;
 pub use crate::tree::{Tree, TreeEntry, TreeIter, TreeWalkMode, TreeWalkResult};
 pub use crate::treebuilder::TreeBuilder;
-pub use crate::util::IntoCString;
+pub use crate::util::{IntoCString, Binding};
 pub use crate::version::Version;
 pub use crate::worktree::{Worktree, WorktreeAddOptions, WorktreeLockStatus, WorktreePruneOptions};
+
+pub use crate::filter::{Filter, FilterSource, Stream, WriteStream};
+pub use crate::raw::{git_filemode_t, git_error_code, git_remote_callbacks, GIT_PASSTHROUGH};
+pub use crate::lfs::{LfsAuthenticate, LfsAuth, LfsAuthHdr};
 
 // Create a convinience method on bitflag struct which checks the given flag
 macro_rules! is_bit_set {
@@ -717,6 +721,8 @@ mod tree;
 mod treebuilder;
 mod version;
 mod worktree;
+mod filter;
+mod lfs;
 
 fn init() {
     static INIT: Once = Once::new();

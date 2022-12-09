@@ -296,6 +296,7 @@ impl Error {
             GIT_EINDEXDIRTY,
             GIT_EAPPLYFAIL,
             GIT_EOWNER,
+            GIT_DELAYED_STREAM,
         )
     }
 

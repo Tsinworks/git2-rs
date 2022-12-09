@@ -161,6 +161,7 @@ fn main() {
     cfg.file("libgit2/src/util/hash/collisiondetect.c");
     cfg.file("libgit2/src/util/hash/sha1dc/sha1.c");
     cfg.file("libgit2/src/util/hash/sha1dc/ubc_check.c");
+    cfg.file("lfs/authenticate.c");
 
     if https {
         if windows {
@@ -188,7 +189,8 @@ fn main() {
     }
 
     features.push_str("#endif\n");
-    fs::write(include.join("git2/sys/features.h"), features).unwrap();
+    fs::write(include.join("git2/sys/features.h"), &features).unwrap();
+    fs::write(include.join("git2_features.h"), &features).unwrap();
 
     cfg.compile("git2");
 

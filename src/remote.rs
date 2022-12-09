@@ -1,4 +1,6 @@
 use libc;
+use raw::GIT_BRANCH_LOCAL;
+use raw::GIT_BRANCH_REMOTE;
 use raw::git_strarray;
 use std::marker;
 use std::mem;
@@ -8,6 +10,7 @@ use std::slice;
 use std::str;
 use std::{ffi::CString, os::raw::c_char};
 
+use crate::filter::Filter;
 use crate::string_array::StringArray;
 use crate::util::Binding;
 use crate::{raw, Buf, Direction, Error, FetchPrune, Oid, ProxyOptions, Refspec};
@@ -47,6 +50,7 @@ pub struct FetchOptions<'cb> {
     follow_redirects: RemoteRedirect,
     custom_headers: Vec<CString>,
     custom_headers_ptrs: Vec<*const c_char>,
+    filters: Option<Vec<Box<crate::filter::RawFilter>>>,
 }
 
 /// Options to control the behavior of a git push.
@@ -305,6 +309,60 @@ impl<'repo> Remote<'repo> {
         Ok(())
     }
 
+    /// Pull
+    pub fn pull<Str: AsRef<str> + crate::IntoCString + Clone>(
+        &mut self,
+        refspecs: &[Str],
+        opts: Option<&mut FetchOptions<'_>>,
+        reflog_msg: Option<&str>,
+    ) -> Result<(), Error> {
+        let (_a, _b, arr) = crate::util::iter2cstrs(refspecs.iter())?;
+        let msg = crate::opt_cstr(reflog_msg)?;
+        let raw = opts.map(|o| o.raw());
+        unsafe {
+            // try_call!(raw::git_remote_fetch(self.raw, &arr, raw.as_ref(), msg));
+            // let repo = raw::git_remote_owner(self.raw());
+            // let mut origin = ptr::null_mut();
+            // let mut local = ptr::null_mut();
+            // try_call!(raw::git_branch_lookup(&mut origin, repo, "".as_ptr() as _, GIT_BRANCH_LOCAL));
+            // try_call!(raw::git_branch_lookup(&mut local, repo, "".as_ptr() as _, GIT_BRANCH_REMOTE));
+            // try_call!(raw::git_repository_set_head(repo, raw::git_reference_name(local)));
+            // let mut their = ptr::null_mut();
+            // try_call!(raw::git_annotated_commit_from_ref(&mut their, repo, origin));
+            // try_call!(raw::git_merge(repo, their, 1, ptr::null(), raw.as_ref()));
+            // let mut index = ptr::null_mut();
+            // try_call!(raw::git_repository_index(&mut index, repo));
+            // if raw::git_index_has_conflicts(index) != 0 {
+                // const git_index_entry* ancestor_out = nullptr;
+                // const git_index_entry* our_out = nullptr;
+                // const git_index_entry* their_out = nullptr;
+                // git_index_conflict_iterator_new(&conflict_iterator, index);
+                // while (git_index_conflict_next(&ancestor_out, &our_out, &their_out, conflict_iterator) != GIT_ITEROVER)
+                // {
+                //     if (ancestor_out) std::cout<< "ancestor: " << ancestor_out->path <<std::endl;
+                //     if (our_out) std::cout<< "our: " << our_out->path <<std::endl;
+                //     if (their_out) std::cout<< "their: " << their_out->path <<std::endl;
+                // }
+                // // git checkout --theirs <file>
+                // git_checkout_options opt = GIT_CHECKOUT_OPTIONS_INIT;
+                // opt.checkout_strategy |= GIT_CHECKOUT_USE_THEIRS;
+                // git_checkout_index(rep, index, &opt);
+                // git_index_conflict_iterator_free(conflict_iterator);
+            //}            
+            // git_commit_lookup(&their_commit, rep, git_reference_target(origin_master));
+            // git_commit_lookup(&our_commit, rep, git_reference_target(local_master));
+            // add and commit
+            // error = git_index_update_all(index, nullptr, nullptr, nullptr);
+            // error = git_index_write(index);
+            // error = git_index_write_tree(&new_tree_id, index);
+            // error = git_tree_lookup(&new_tree, rep, &new_tree_id);
+            // git_signature_now(&me, "XiaochenFTX", "xiaochenftx@gmail.com");
+            // error = git_commit_create_v(&commit_id, rep, git_reference_name(local_master), me, me, "UTF-8", "pull commit", new_tree, 2, our_commit, their_commit);
+            // git_repository_state_cleanup(rep);
+        }
+        Ok(())
+    }
+
     /// Update the tips to the new state
     pub fn update_tips(
         &mut self,
@@ -499,6 +557,7 @@ impl<'cb> FetchOptions<'cb> {
             follow_redirects: RemoteRedirect::Initial,
             custom_headers: Vec::new(),
             custom_headers_ptrs: Vec::new(),
+            filters: None,
         }
     }
 
@@ -517,6 +576,17 @@ impl<'cb> FetchOptions<'cb> {
     /// Set whether to perform a prune after the fetch.
     pub fn prune(&mut self, prune: FetchPrune) -> &mut Self {
         self.prune = prune;
+        self
+    }
+
+    /// Install a filter
+    pub fn install_filter(&mut self, filter: Box<dyn Filter>) -> &mut Self {
+        if let Some(filters) = self.filters.as_mut() {
+            filters.push(crate::filter::create_filter(filter));
+        } else {
+            let filters = vec![crate::filter::create_filter(filter)];
+            self.filters = Some(filters); 
+        }
         self
     }
 

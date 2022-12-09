@@ -80,6 +80,7 @@ pub struct CheckoutBuilder<'cb> {
     path_ptrs: Vec<*const c_char>,
     file_perm: Option<i32>,
     dir_perm: Option<i32>,
+    num_workers: Option<i32>,
     disable_filters: bool,
     checkout_opts: u32,
     progress: Option<Box<Progress<'cb>>>,
@@ -330,6 +331,7 @@ impl<'cb> CheckoutBuilder<'cb> {
             ancestor_label: None,
             our_label: None,
             their_label: None,
+            num_workers: None,
             checkout_opts: raw::GIT_CHECKOUT_SAFE as u32,
             progress: None,
             notify: None,
@@ -497,6 +499,14 @@ impl<'cb> CheckoutBuilder<'cb> {
         self
     }
 
+    /// Set number of checkout workers
+    /// 
+    /// Default is 4
+    pub fn num_workers(&mut self, num_workers: i32) -> &mut CheckoutBuilder<'cb> {
+        self.num_workers = Some(num_workers);
+        self
+    }
+
     /// Set the mode with which new files are created.
     ///
     /// The default is 0644 or 0755 as dictated by the blob.
@@ -578,6 +588,7 @@ impl<'cb> CheckoutBuilder<'cb> {
         opts.disable_filters = self.disable_filters as c_int;
         opts.dir_mode = self.dir_perm.unwrap_or(0) as c_uint;
         opts.file_mode = self.file_perm.unwrap_or(0) as c_uint;
+        opts.num_workers = self.num_workers.unwrap_or(4) as c_int; // max to 4 workers
 
         if !self.path_ptrs.is_empty() {
             opts.paths.strings = self.path_ptrs.as_ptr() as *mut _;

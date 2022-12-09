@@ -196,6 +196,7 @@ git_enum! {
         GIT_EINDEXDIRTY = -34,
         GIT_EAPPLYFAIL = -35,
         GIT_EOWNER = -36,
+        GIT_DELAYED_STREAM = -37,
     }
 }
 
@@ -294,6 +295,17 @@ pub struct git_checkout_options {
     pub dir_mode: c_uint,
     pub file_mode: c_uint,
     pub file_open_flags: c_int,
+    /// default is 0, use single thread checkout, -1 means all cpu cores, num_workers can be set between 0 ~ max cpu cores,
+    ///   if exceeded max cpu cores, num of workers will be clamp to max cpu core
+    pub num_workers: c_int,
+    /// default is 0, disable lfs checkout support
+    pub enable_lfs: c_int,
+    /// default is 0, lfs download timeout in seconds
+    pub lfs_timeout: c_int,
+    /// default is 0, max number of lfs connections is 80
+    pub lfs_connections: c_int,
+    /// default is 0, defines how many times to download lfs files
+    pub lfs_retry: c_int,
     pub notify_flags: c_uint,
     pub notify_cb: git_checkout_notify_cb,
     pub notify_payload: *mut c_void,
@@ -411,6 +423,119 @@ git_enum! {
         GIT_REMOTE_COMPLETION_INDEXING,
         GIT_REMOTE_COMPLETION_ERROR,
     }
+}
+
+git_enum! {
+    pub enum git_filter_mode_t {
+        GIT_FILTER_SMUDGE,
+        GIT_FILTER_CLEANR,
+    }
+}
+
+git_enum! {
+    pub enum git_lfs_auth_command_t {
+        GIT_LFS_AUTH_COMMAND_DOWNLOAD,
+        GIT_LFS_AUTH_COMMAND_UPLOAD,
+    }
+}
+
+/*
+	git_repository    *repo;
+	const char        *path;
+	git_oid            oid;  /* zero if unknown (which is likely) */
+	uint16_t           filemode; /* zero if unknown */
+	git_filter_mode_t  mode;
+	git_filter_options options;
+*/
+#[repr(C)]
+pub struct git_filter_source {
+    _repo:      *mut git_repository,
+    _path:      *const c_char,
+    _oid:       git_oid,
+    _filemode:  u16,
+    _mode:      git_filter_mode_t,
+}
+
+impl git_filter_source {
+    /// get repo of filter source, shouldn't be freed
+    pub fn repo(&self) -> *mut git_repository {
+        unsafe { git_filter_source_repo(&*self) }
+    }
+}
+
+impl git_repository {
+    pub fn path(&self) -> Option<&str> {
+        let path = unsafe { git_repository_path(&*self) };
+        if path.is_null() {
+            None
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(path) }.to_str().ok()
+        }
+    }
+    pub fn workdir(&self) -> Option<&str> {
+        let path = unsafe { git_repository_workdir(&*self) };
+        if path.is_null() {
+            None
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(path) }.to_str().ok()
+        }
+    }
+    pub fn head(&mut self) -> (git_error_code, *mut git_reference) {
+        let mut ptr = std::ptr::null_mut();
+        let ret = unsafe { git_repository_head(&mut ptr, &mut *self) };
+        (ret, ptr)
+    }
+}
+
+impl git_remote {
+    pub fn push_url(&self) -> Option<&str> {
+        unsafe { std::ffi::CStr::from_ptr(git_remote_pushurl(&*self)) }.to_str().ok()
+    }
+
+    pub fn url(&self) -> Option<&str> {
+        unsafe { std::ffi::CStr::from_ptr(git_remote_url(&*self)) }.to_str().ok()
+    }
+}
+
+#[repr(C)]
+pub struct git_filter {
+    pub version:    u32,
+    pub attributes: *const c_char,
+    pub initialize: Option<unsafe extern "C" fn(*mut git_filter) -> git_error_code>,
+    pub shutdown:   Option<unsafe extern "C" fn(*mut git_filter)>,
+    pub begin_sync: Option<unsafe extern "C" fn(*mut git_filter)>,
+    pub end_sync:   Option<unsafe extern "C" fn(*mut git_filter)>,
+    pub check:      Option<unsafe extern "C" fn(
+        *mut git_filter, 
+        payload: *mut *mut u8, 
+        source:*const git_filter_source, 
+        attrs:*const *const i8
+    ) -> git_error_code>,
+    pub prefilter:  Option<unsafe extern "C" fn(
+        *mut git_filter, 
+        payload: *mut *mut u8, 
+        source:*const git_filter_source, 
+        blob: *const git_blob,
+        attrs:*const *const i8
+    ) -> git_error_code>,
+    pub apply:      Option<unsafe extern "C" fn(
+        *mut git_filter,
+        payload: *mut *mut u8, 
+        to: *mut git_buf,
+        from: *const git_buf,
+        src: *const git_filter_source
+    ) -> git_error_code>,
+    pub stream:     Option<unsafe extern "C" fn(
+        *mut *mut git_writestream,
+        *mut git_filter,
+        payload: *mut *mut u8, 
+        src: *const git_filter_source,
+        next: *mut git_writestream,
+    ) -> git_error_code>,
+    pub cleanup:    Option<unsafe extern "C" fn(
+        *mut git_filter,
+        payload: *mut u8
+    )>
 }
 
 pub type git_transport_message_cb =
@@ -2057,6 +2182,9 @@ extern "C" {
         repo: *mut git_repository,
         namespace: *const c_char,
     ) -> c_int;
+    /// * 0 on success, 
+    /// * GIT_EUNBORNBRANCH when HEAD points to a non existing branch, 
+    /// * GIT_ENOTFOUND when HEAD is missing; an error code otherwise
     pub fn git_repository_head(out: *mut *mut git_reference, repo: *mut git_repository) -> c_int;
     pub fn git_repository_set_head(repo: *mut git_repository, refname: *const c_char) -> c_int;
 
@@ -2199,6 +2327,7 @@ extern "C" {
         repo: *mut git_repository,
         name: *const c_char,
     ) -> c_int;
+    pub fn git_remote_owner(remote: *const git_remote) -> *mut git_repository;
     pub fn git_remote_create_anonymous(
         out: *mut *mut git_remote,
         repo: *mut git_repository,
@@ -3151,6 +3280,27 @@ extern "C" {
         password: *const c_char,
     ) -> c_int;
     pub fn git_cred_username_new(cred: *mut *mut git_cred, username: *const c_char) -> c_int;
+
+
+    // git_filter source
+    pub fn git_filter_source_repo(src: *const git_filter_source) -> *mut git_repository;
+    pub fn git_filter_source_path(src: *const git_filter_source) -> *const c_char;
+    pub fn git_filter_source_filemode(src: *const git_filter_source) -> u16;
+    pub fn git_filter_source_mode(src: *const git_filter_source) -> git_filter_mode_t;
+    pub fn git_filter_source_id(src: *const git_filter_source) -> *const git_oid;
+    pub fn git_filter_source_flags(src: *const git_filter_source) -> u32;
+
+    // git_filter
+    pub fn git_filter_lookup(name: *const c_char) -> *mut git_filter;
+    pub fn git_filter_init(git_filter: *mut git_filter, version: u32) -> c_int;
+    pub fn git_filter_register(name: *const c_char, git_filter: *mut git_filter, priority: c_int) -> c_int;
+    pub fn git_filter_unregister(name: *const c_char) -> c_int;
+
+    pub fn git_filter_global_init();
+    pub fn git_allocator_global_init() -> c_int;
+
+    // git lfs authenticate
+    pub fn git_lfs_authenticate(name: *const c_char, remote_callbacks:*const git_remote_callbacks, command: git_lfs_auth_command_t, buf: *mut u8, size: size_t) -> c_int;
 
     // tags
     pub fn git_tag_annotation_create(
